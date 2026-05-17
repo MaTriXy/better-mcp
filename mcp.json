@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "fs": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    }
+  },
+  "namespace": true,
+  "middleware": {
+    "log": { "level": "info" },
+    "redact": ["token", "password", "api_key", "authorization"],
+    "offload": true
+  }
+}

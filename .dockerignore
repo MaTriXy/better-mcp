@@ -1,0 +1,14 @@
+.git
+.github
+.gitignore
+.DS_Store
+*.log
+node_modules
+dist
+test-offload.mjs
+exports
+examples
+README.md
+LICENSE
+Dockerfile
+.dockerignore

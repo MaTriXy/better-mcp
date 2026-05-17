@@ -1,0 +1,53 @@
+{
+  "name": "@qelos/better-mcp",
+  "version": "0.1.0",
+  "description": "Stdio MCP proxy: fans out to multiple upstream MCP servers and wraps every call in a middleware pipeline (logging, redaction, oversize-response offloading, and user hooks).",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "better-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "test:offload": "node test-offload.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "proxy",
+    "middleware",
+    "stdio",
+    "claude",
+    "cursor"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qelos/better-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/qelos/better-mcp/issues"
+  },
+  "homepage": "https://github.com/qelos/better-mcp#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
