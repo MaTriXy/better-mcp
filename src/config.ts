@@ -1,7 +1,25 @@
 import { readFile } from "node:fs/promises";
 import { resolve, dirname, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
+import { homedir } from "node:os";
 import type { ProxyConfig } from "./types.js";
+
+/**
+ * Expand a leading `~` / `~/…` to the user's home directory.
+ *
+ * MCP clients (Claude Code, Cursor, …) spawn this proxy directly via execvp,
+ * NOT through a shell — so a config path like `~/.better-mcp.json` arrives as
+ * the literal string `~/.better-mcp.json` and would otherwise resolve to
+ * `<cwd>/~/.better-mcp.json`, fatally crashing the proxy before any upstream
+ * connects.
+ */
+function expandTilde(p: string): string {
+  if (p === "~") return homedir();
+  if (p.startsWith("~/") || p.startsWith("~\\")) {
+    return resolve(homedir(), p.slice(2));
+  }
+  return p;
+}
 
 interface LoadResult {
   config: ProxyConfig;
@@ -135,7 +153,8 @@ export async function loadConfig(opts: LoadOptions = {}): Promise<LoadResult> {
 
   // 1. CLI flag
   if (cli.configPath) {
-    const abs = isAbsolute(cli.configPath) ? cli.configPath : resolve(process.cwd(), cli.configPath);
+    const expanded = expandTilde(cli.configPath);
+    const abs = isAbsolute(expanded) ? expanded : resolve(process.cwd(), expanded);
     const parsed = await readJson(abs);
     return { config: apply(validate(parsed)), baseDir: dirname(abs), source: abs };
   }
@@ -148,7 +167,8 @@ export async function loadConfig(opts: LoadOptions = {}): Promise<LoadResult> {
       const parsed = JSON.parse(trimmed);
       return { config: apply(validate(parsed)), baseDir: process.cwd(), source: "MCP_PROXY_CONFIG (inline)" };
     }
-    const abs = isAbsolute(trimmed) ? trimmed : resolve(process.cwd(), trimmed);
+    const expanded = expandTilde(trimmed);
+    const abs = isAbsolute(expanded) ? expanded : resolve(process.cwd(), expanded);
     const parsed = await readJson(abs);
     return { config: apply(validate(parsed)), baseDir: dirname(abs), source: abs };
   }
@@ -170,9 +190,10 @@ export async function loadConfig(opts: LoadOptions = {}): Promise<LoadResult> {
   );
 }
 
-/** Resolve a path that may be relative to the config file's directory. */
+/** Resolve a path that may be `~`-prefixed or relative to the config file's directory. */
 export function resolveFromConfig(baseDir: string, p: string): string {
-  return isAbsolute(p) ? p : resolve(baseDir, p);
+  const expanded = expandTilde(p);
+  return isAbsolute(expanded) ? expanded : resolve(baseDir, expanded);
 }
 
 /** Helper to dynamically import a user module by absolute path. */
