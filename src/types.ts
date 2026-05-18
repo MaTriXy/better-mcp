@@ -34,6 +34,38 @@ export interface MiddlewareConfig {
    * `true` enables defaults. See OffloadConfig for the knobs.
    */
   offload?: boolean | OffloadConfig;
+  /**
+   * Write a per-tool JSONL trace of the full pipeline flow (request → each
+   * middleware before → upstream → each middleware after → response).
+   * `true` enables defaults. See TraceConfig for the knobs.
+   */
+  trace?: boolean | TraceConfig;
+}
+
+export interface TraceConfig {
+  /**
+   * Directory for per-tool trace files (`<server>__<name>.jsonl`). Path may be
+   * absolute, `~`-prefixed, or relative to the config file.
+   * Default: <os.tmpdir()>/better-mcp/trace.
+   */
+  dir?: string;
+  /**
+   * Cap each captured body (params/result) to this many bytes; larger bodies
+   * are replaced with a `{ truncated, bytes, sha256, head }` placeholder.
+   * 0 or omitted = no cap (full bodies).
+   */
+  maxBodyBytes?: number;
+  /**
+   * Field-name substrings whose values are redacted before a body is written.
+   * Defaults to the `redact` list above (the tracer sees raw pre-redaction
+   * data, so it must scrub independently). Set `[]` to disable.
+   */
+  redact?: string[];
+  /**
+   * Also trace resource reads and prompt gets. Tools are always traced.
+   * Default: false.
+   */
+  includeResources?: boolean;
 }
 
 export interface OffloadConfig {
