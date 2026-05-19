@@ -1,0 +1,87 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${HOME}/projects"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    },
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    },
+    "postgres": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "${DATABASE_URL:-postgresql://localhost:5432/mydb}"
+      ]
+    },
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      }
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
+    },
+    "context7": {
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "${CONTEXT7_API_KEY}"
+      }
+    }
+  },
+  "namespace": true,
+  "middleware": {
+    "log": { "level": "info" },
+    "redact": [
+      "token",
+      "password",
+      "api_key",
+      "authorization",
+      "secret",
+      "email",
+      "phone",
+      "mobile",
+      "ssn",
+      "social_security",
+      "birth",
+      "dob",
+      "address",
+      "street",
+      "postal",
+      "zip",
+      "passport",
+      "license",
+      "iban",
+      "credit_card",
+      "card_number",
+      "first_name",
+      "last_name",
+      "full_name",
+      "display_name",
+      "ip_address",
+      "national_id"
+    ],
+    "offload": {
+      "thresholdBytes": 16384,
+      "dir": "./exports",
+      "includeResources": false,
+      "inferArrayShape": true
+    }
+  }
+}

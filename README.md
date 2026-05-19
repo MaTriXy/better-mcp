@@ -85,9 +85,9 @@ Notes for Docker:
 
 - Use `-i` (no `-t`) — the proxy speaks MCP over stdio.
 - Any upstream MCP servers listed in `mcp.json` need to be runnable **inside
-  the container**. The image has `node` and `npx`, so `npx -y @modelcontextprotocol/server-*`
-  works out of the box. If an upstream needs Python, Docker-in-Docker, or other
-  toolchains, build a derived image.
+the container**. The image has `node` and `npx`, so `npx -y @modelcontextprotocol/server-`*
+works out of the box. If an upstream needs Python, Docker-in-Docker, or other
+toolchains, build a derived image.
 - For per-server secrets, pass them through with `-e GITHUB_PERSONAL_ACCESS_TOKEN=…`.
 
 ### Option C — Build from source
@@ -130,6 +130,12 @@ Resolved in this order — the first hit wins:
 
 In practice: drop your `mcp.json` next to `package.json` (or mount it at
 `/app/mcp.json` in Docker) and it just works.
+
+## Popular MCP servers
+
+Copy-paste configs for filesystem, GitHub, Postgres, Brave Search, Playwright,
+Context7, memory, and more — plus a ready-made `[examples/mcp.popular.json](examples/mcp.popular.json)`.
+See **[docs/popular-mcps.md](docs/popular-mcps.md)**.
 
 ## Config
 
@@ -189,8 +195,8 @@ CLI flags:
 - `-c <path>` / `--config <path>` — path to `mcp.json` (overrides discovery + env).
 - `--no-namespace` — disable the `<server>__<tool>` prefix at runtime.
 - `--offload-resources` — also offload `resources/read` responses (same as
-  setting `middleware.offload.includeResources: true`, or
-  `MCP_PROXY_OFFLOAD_RESOURCES=1`).
+setting `middleware.offload.includeResources: true`, or
+`MCP_PROXY_OFFLOAD_RESOURCES=1`).
 
 ## Middleware
 
@@ -210,11 +216,11 @@ that data, the offloader decides whether to write it to disk and replace the
 response with a pointer, and the logger records what the client will ultimately
 see.
 
-The **`log`** middleware is itself a hook at the outermost position, so it only
+The `**log**` middleware is itself a hook at the outermost position, so it only
 sees the request before anyone touched it and the response after everyone did.
-The **`trace`** feature is different: it's wired into the pipeline itself, not
+The `**trace**` feature is different: it's wired into the pipeline itself, not
 into the hook chain, so it can record what *each* middleware changed. Use `log`
-for a light one-line-per-call record; use `trace` when you need the full
+for a light one-line-per-call record; use `trace` when you need the full  
 per-tool flow.
 
 ### Offloading oversize responses
@@ -223,17 +229,15 @@ When a tool response's JSON-serialized size exceeds `thresholdBytes`
 (default 16 KB), the offloader:
 
 1. Writes the full response to `<dir>/<server>__<tool>__<timestamp>.json`.
-   If the response is the typical `{ content: [{ type: "text", text: "<JSON>" }] }`
+  If the response is the typical `{ content: [{ type: "text", text: "<JSON>" }] }`
    shape, the *parsed* inner JSON is saved instead of the wrapper.
 2. Replaces the response with a short text message like:
-
-   ```
+  ```
    response exported to: /tmp/better-mcp/github__list_issues__2026-05-17T12-34-56-789Z.json
    size: 142.3 KB (145708 bytes)
    length: 1024
    interface: Array<{ id: number; number: number; title: string; state: string; labels: Array<{ name: string; color: string }>; assignee: { login: string } | null }>
-   ```
-
+  ```
    `length` and `interface` only appear when the saved data is an array. The
    interface is inferred from a sample of up to 200 elements and depth-capped
    at 4 to keep it lean.
@@ -255,10 +259,10 @@ JSONL file:
 ```
 
 - **One file per tool**: `<dir>/<server>__<tool>.jsonl`
-  (e.g. `atlasian__jira_search.jsonl`). Default `dir` is
-  `<os.tmpdir()>/better-mcp/trace`.
+(e.g. `jira__search_issues.jsonl`). Default `dir` is
+`<os.tmpdir()>/better-mcp/trace`.
 - **No per-tool setup** — it's automatic for every tool that gets called.
-  Resources/prompts are excluded unless `includeResources: true`.
+Resources/prompts are excluded unless `includeResources: true`.
 
 #### What a trace looks like
 
@@ -267,8 +271,8 @@ One JSON object per line. Every line carries `ts`, `callId`, `seq`, `server`,
 mutated the request, then the `redact` middleware that cleaned the response):
 
 ```jsonc
-{"ts":"…","callId":"a1f…","seq":0,"server":"atlasian","tool":"jira_search","kind":"tool","phase":"request","params":{"jql":"project = ACDEV"}}
-{… "seq":1,"phase":"before","mw":"user","changed":true,"durationMs":0,"params":{"jql":"project = ACDEV","injectedByUser":true}}
+{"ts":"…","callId":"a1f…","seq":0,"server":"jira","tool":"search_issues","kind":"tool","phase":"request","params":{"jql":"project = DEMO"}}
+{… "seq":1,"phase":"before","mw":"user","changed":true,"durationMs":0,"params":{"jql":"project = DEMO","injectedByUser":true}}
 {… "seq":2,"phase":"upstream","durationMs":214,"ok":true,"result":{"content":[{"type":"text","text":"{…}"}]}}
 {… "seq":3,"phase":"after","mw":"user","changed":false,"durationMs":0}
 {… "seq":4,"phase":"after","mw":"redact","changed":true,"durationMs":1,"result":{"content":[{"type":"text","text":"{…redacted…}"}]}}
@@ -290,33 +294,33 @@ self-contained line tagged with `callId` + a per-call `seq`, and writes are
 serialized per file, so lines never tear. Reconstruct one flow with:
 
 ```bash
-grep '"callId":"a1f…"' atlasian__jira_search.jsonl | jq -s 'sort_by(.seq)'
+grep '"callId":"a1f…"' jira__search_issues.jsonl | jq -s 'sort_by(.seq)'
 ```
 
 #### What to expect — important behaviors
 
 - **Bodies are full by default** (`maxBodyBytes: 0`). Set a byte cap and larger
-  bodies become a `{ "truncated": true, "bytes", "sha256", "head" }`
-  placeholder instead.
+bodies become a `{ "truncated": true, "bytes", "sha256", "head" }`
+placeholder instead.
 - **Trace vs. offload**: the trace captures the **pre-offload** payload at the
-  inner `after` steps. With full bodies, a response that offload would shrink
-  still lands in the trace file at full size — that's the point (full fidelity
-  for debugging), but it means trace files can grow large. Cap with
-  `maxBodyBytes` if that matters.
+inner `after` steps. With full bodies, a response that offload would shrink
+still lands in the trace file at full size — that's the point (full fidelity
+for debugging), but it means trace files can grow large. Cap with
+`maxBodyBytes` if that matters.
 - **Redaction**: the tracer sees raw, pre-redaction upstream data, so it scrubs
-  independently using `trace.redact` (falling back to `middleware.redact`).
-  Unlike the `redact` middleware, it also descends into **JSON embedded in
-  strings** — the common `content[].text` wrapper — so secrets there are caught.
-  It's still key-based: a secret that isn't the value of a key matching a
-  pattern won't be masked. Set your patterns deliberately, and treat the trace
-  directory as sensitive.
+independently using `trace.redact` (falling back to `middleware.redact`).
+Unlike the `redact` middleware, it also descends into **JSON embedded in
+strings** — the common `content[].text` wrapper — so secrets there are caught.
+It's still key-based: a secret that isn't the value of a key matching a
+pattern won't be masked. Set your patterns deliberately, and treat the trace
+directory as sensitive.
 - **No rotation**: per-tool files append indefinitely. Rotate/prune them
-  yourself if volume is a concern.
+yourself if volume is a concern.
 - **Cost**: bodies are redacted and serialized on the call path before the
-  async write. It's a debugging/observability feature — leave it off in
-  latency-sensitive setups, or use `maxBodyBytes`.
+async write. It's a debugging/observability feature — leave it off in
+latency-sensitive setups, or use `maxBodyBytes`.
 - A config change (including enabling `trace`) only takes effect when the proxy
-  restarts — restart your MCP host after editing it.
+restarts — restart your MCP host after editing it.
 
 ### User hooks
 
@@ -350,7 +354,7 @@ inside `after` surfaces as an MCP error to the client.
 ## What's proxied
 
 - **tools/list** — aggregated from every connected server. Names are namespaced
-  as `<server>__<tool>` unless `namespace: false`.
+as `<server>__<tool>` unless `namespace: false`.
 - **tools/call** — routed to the right upstream based on the namespaced name.
 - **resources/list** / **resources/read** — aggregated; URIs are kept as-is.
 - **prompts/list** / **prompts/get** — aggregated; names are namespaced.
