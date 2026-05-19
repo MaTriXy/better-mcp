@@ -2,7 +2,7 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeOffloader, resolveOffloadConfig, inferArrayInterface } from "./dist/offload.js";
+import { makeOffloader, resolveOffloadConfig, inferArrayInterface } from "./dist/middleware/offload.middleware.js";
 
 async function run() {
   const dir = await mkdtemp(join(tmpdir(), "better-mcp-test-"));

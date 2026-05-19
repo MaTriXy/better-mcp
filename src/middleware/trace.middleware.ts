@@ -2,9 +2,9 @@ import { mkdir, appendFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID, createHash } from "node:crypto";
-import { resolveFromConfig } from "./config.js";
-import { REDACTED } from "./redact.js";
-import type { ProxyRequest, ProxyResponse, TraceConfig } from "./types.js";
+import { resolveFromConfig } from "../config/index.js";
+import { REDACTED } from "../lib/redact.js";
+import type { ProxyRequest, ProxyResponse, TraceConfig } from "../types/index.js";
 
 interface ResolvedTraceConfig {
   dir: string;

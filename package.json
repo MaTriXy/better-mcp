@@ -17,6 +17,8 @@
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "test:offload": "node test-offload.mjs",
+    "test:config": "node test-config.mjs",
+    "test": "npm run build && npm run test:offload && npm run test:config",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -44,6 +46,7 @@
     "@modelcontextprotocol/sdk": "^1.0.0"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^20.11.0",
     "typescript": "^5.4.0"
   },

@@ -3,8 +3,8 @@
  */
 
 export interface McpServerConfig {
-  /** Executable to spawn (e.g. "npx", "node", "python"). */
-  command: string;
+  /** Executable to spawn (e.g. "npx", "node", "python"). Required unless `url` is set. */
+  command?: string;
   /** Arguments passed to the command. */
   args?: string[];
   /** Extra environment variables for the child process. */
@@ -13,6 +13,29 @@ export interface McpServerConfig {
   cwd?: string;
   /** If false, skip this server. Defaults to true. */
   enabled?: boolean;
+  /**
+   * Remote MCP server URL (Streamable HTTP). Required unless `command` is set.
+   * Supports `${ENV_VAR}` interpolation.
+   */
+  url?: string;
+  /** Extra HTTP headers for remote upstreams (e.g. Authorization). */
+  headers?: Record<string, string>;
+}
+
+export interface ListenAuthConfig {
+  /** Bearer token clients must send as `Authorization: Bearer …`. */
+  bearer?: string;
+}
+
+export interface ListenConfig {
+  /** Bind address. Default 127.0.0.1. Use 0.0.0.0 for containers/k8s. */
+  host?: string;
+  /** TCP port to listen on. */
+  port: number;
+  /** HTTP path for MCP Streamable HTTP. Default /mcp. */
+  path?: string;
+  /** Inbound auth. Required when host is not loopback unless disabled explicitly. */
+  auth?: ListenAuthConfig;
 }
 
 export interface MiddlewareConfig {
@@ -98,6 +121,8 @@ export interface ProxyConfig {
   middleware?: MiddlewareConfig;
   /** Prefix each upstream tool/resource/prompt with `<serverName>__`. Default true. */
   namespace?: boolean;
+  /** Expose the proxy over HTTP (Streamable HTTP / SSE) on the network. */
+  listen?: ListenConfig;
 }
 
 /** A single proxied invocation, passed through the middleware pipeline. */

@@ -1,14 +1,15 @@
-import { appendFile } from "node:fs/promises";
-import { resolveFromConfig, fileUrlFor } from "./config.js";
-import { makeOffloader, resolveOffloadConfig } from "./offload.js";
-import { makeRedactWalk } from "./redact.js";
-import { Tracer, resolveTraceConfig } from "./trace.js";
+import { resolveFromConfig } from "../config/index.js";
+import { makeLogger } from "./logger.middleware.js";
+import { makeOffloader, resolveOffloadConfig } from "./offload.middleware.js";
+import { makeRedactor } from "./redactor.middleware.js";
+import { Tracer, resolveTraceConfig } from "./trace.middleware.js";
+import { loadUserHooks } from "./user-hooks.middleware.js";
 import type {
   MiddlewareConfig,
   MiddlewareHooks,
   ProxyRequest,
   ProxyResponse,
-} from "./types.js";
+} from "../types/index.js";
 
 /** A registered middleware plus the name the tracer labels its steps with. */
 interface NamedHook {
@@ -125,76 +126,4 @@ export class MiddlewarePipeline {
     session?.response(res, Date.now() - invokeStart);
     return res;
   }
-}
-
-// -- built-in: logger ---------------------------------------------------------
-
-function makeLogger(level: "info" | "debug", file?: string): MiddlewareHooks {
-  const write = async (line: string) => {
-    if (file) {
-      await appendFile(file, line + "\n", "utf8");
-    } else {
-      // Stderr is safe to write to in an stdio MCP server (stdout is for protocol).
-      process.stderr.write(line + "\n");
-    }
-  };
-  return {
-    async before(req) {
-      const entry = {
-        ts: new Date().toISOString(),
-        dir: "request",
-        server: req.server,
-        kind: req.kind,
-        name: req.name,
-        ...(level === "debug" ? { params: req.params } : {}),
-      };
-      await write(JSON.stringify(entry));
-    },
-    async after(req, res) {
-      const entry: Record<string, unknown> = {
-        ts: new Date().toISOString(),
-        dir: "response",
-        server: req.server,
-        kind: req.kind,
-        name: req.name,
-        durationMs: res.durationMs,
-      };
-      if (res.error) entry.error = res.error.message;
-      if (level === "debug") entry.result = res.result;
-      await write(JSON.stringify(entry));
-    },
-  };
-}
-
-// -- built-in: redactor -------------------------------------------------------
-
-function makeRedactor(patterns: string[]): MiddlewareHooks {
-  const walk = makeRedactWalk(patterns);
-  return {
-    after(_req, res) {
-      if (res.error) return res;
-      return { ...res, result: walk(res.result) };
-    },
-  };
-}
-
-// -- user hooks ---------------------------------------------------------------
-
-async function loadUserHooks(absPath: string): Promise<MiddlewareHooks> {
-  const mod = (await import(fileUrlFor(absPath))) as {
-    default?: MiddlewareHooks;
-    before?: MiddlewareHooks["before"];
-    after?: MiddlewareHooks["after"];
-  };
-  // Accept either `export default { before, after }` or named exports.
-  if (mod.default && (mod.default.before || mod.default.after)) {
-    return mod.default;
-  }
-  if (mod.before || mod.after) {
-    return { before: mod.before, after: mod.after };
-  }
-  throw new Error(
-    `Middleware module at ${absPath} did not export before/after hooks. ` +
-      'Expected `export default { before, after }` or named exports.',
-  );
 }

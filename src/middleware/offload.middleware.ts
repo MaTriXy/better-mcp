@@ -1,8 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveFromConfig } from "./config.js";
-import type { MiddlewareHooks, OffloadConfig, ProxyRequest, ProxyResponse } from "./types.js";
+import { resolveFromConfig } from "../config/index.js";
+import type { MiddlewareHooks, OffloadConfig, ProxyRequest, ProxyResponse } from "../types/index.js";
 
 const DEFAULT_THRESHOLD = 16 * 1024; // 16 KB
 const MAX_SAMPLE = 200; // cap how many elements we sniff for type inference

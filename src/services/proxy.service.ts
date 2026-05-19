@@ -1,4 +1,4 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   ListToolsRequestSchema,
@@ -8,9 +8,9 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { MiddlewarePipeline } from "./middleware.js";
-import type { UpstreamServer } from "./upstream.js";
-import type { ProxyRequest } from "./types.js";
+import type { MiddlewarePipeline } from "../middleware/pipeline.js";
+import type { UpstreamServer } from "./upstream.service.js";
+import type { ProxyRequest } from "../types/index.js";
 
 const NS_SEPARATOR = "__";
 
@@ -50,18 +50,21 @@ function buildRoutes(servers: UpstreamServer[], namespace: boolean) {
 }
 
 /**
- * Wire up the proxy MCP server. Returns the configured Server (not yet listening)
+ * Wire up the proxy MCP server. Returns the configured McpServer (not yet listening)
  * so the caller can attach the transport and start it.
+ *
+ * Uses the underlying `server` for request handlers so upstream JSON Schemas are
+ * forwarded unchanged (McpServer.registerTool only accepts Zod shapes).
  */
 export function buildProxyServer(opts: {
   upstreams: UpstreamServer[];
   pipeline: MiddlewarePipeline;
   namespace: boolean;
-}): Server {
+}): McpServer {
   const { upstreams, pipeline, namespace } = opts;
   const routes = buildRoutes(upstreams, namespace);
 
-  const server = new Server(
+  const mcp = new McpServer(
     { name: "@qelos/better-mcp", version: "0.1.0" },
     {
       capabilities: {
@@ -71,6 +74,7 @@ export function buildProxyServer(opts: {
       },
     },
   );
+  const server = mcp.server;
 
   // ---- tools ---------------------------------------------------------------
 
@@ -179,13 +183,13 @@ export function buildProxyServer(opts: {
     return res.result as Record<string, unknown>;
   });
 
-  return server;
+  return mcp;
 }
 
 /** Connect the proxy to the stdio transport and start serving. */
-export async function startProxy(server: Server): Promise<void> {
+export async function startProxy(mcp: McpServer): Promise<void> {
   const transport = new StdioServerTransport();
-  await server.connect(transport);
+  await mcp.connect(transport);
 }
 
 function warn(msg: string): void {

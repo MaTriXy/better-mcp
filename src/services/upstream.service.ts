@@ -1,6 +1,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import type { McpServerConfig } from "./types.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { McpServerConfig } from "../types/index.js";
 
 export interface UpstreamTool {
   server: string;
@@ -25,19 +27,21 @@ export interface UpstreamPrompt {
   arguments?: unknown;
 }
 
+const PROXY_CLIENT_INFO = { name: "@qelos/better-mcp", version: "0.1.0" };
+
 /**
  * One connected upstream MCP server, holding the SDK Client and the catalog
  * we discovered at connect time.
  */
 export class UpstreamServer {
   client: Client;
-  transport: StdioClientTransport;
+  transport: Transport;
   name: string;
   tools: UpstreamTool[] = [];
   resources: UpstreamResource[] = [];
   prompts: UpstreamPrompt[] = [];
 
-  constructor(name: string, client: Client, transport: StdioClientTransport) {
+  constructor(name: string, client: Client, transport: Transport) {
     this.name = name;
     this.client = client;
     this.transport = transport;
@@ -127,7 +131,13 @@ export async function connectAll(
 }
 
 async function connectOne(name: string, cfg: McpServerConfig): Promise<UpstreamServer> {
-  // Filter out undefined env values so StdioClientTransport's typing is happy.
+  if (cfg.url) {
+    return connectRemote(name, cfg);
+  }
+  return connectStdio(name, cfg);
+}
+
+async function connectStdio(name: string, cfg: McpServerConfig): Promise<UpstreamServer> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (typeof v === "string") env[k] = v;
@@ -135,21 +145,39 @@ async function connectOne(name: string, cfg: McpServerConfig): Promise<UpstreamS
   if (cfg.env) Object.assign(env, cfg.env);
 
   const transport = new StdioClientTransport({
-    command: cfg.command,
+    command: cfg.command!,
     args: cfg.args ?? [],
     env,
     cwd: cfg.cwd,
   });
 
-  const client = new Client(
-    { name: "@qelos/better-mcp", version: "0.1.0" },
-    { capabilities: {} },
-  );
-
+  const client = new Client(PROXY_CLIENT_INFO, { capabilities: {} });
   await client.connect(transport);
   const server = new UpstreamServer(name, client, transport);
   await server.refresh();
   return server;
+}
+
+async function connectRemote(name: string, cfg: McpServerConfig): Promise<UpstreamServer> {
+  const url = new URL(cfg.url!);
+  const requestInit = buildRequestInit(cfg.headers);
+  return connectWithTransport(
+    name,
+    new StreamableHTTPClientTransport(url, { requestInit }),
+  );
+}
+
+async function connectWithTransport(name: string, transport: Transport): Promise<UpstreamServer> {
+  const client = new Client(PROXY_CLIENT_INFO, { capabilities: {} });
+  await client.connect(transport);
+  const server = new UpstreamServer(name, client, transport);
+  await server.refresh();
+  return server;
+}
+
+function buildRequestInit(headers?: Record<string, string>): RequestInit {
+  if (!headers || Object.keys(headers).length === 0) return {};
+  return { headers: { ...headers } };
 }
 
 function warn(server: string, msg: string, err: unknown): void {
