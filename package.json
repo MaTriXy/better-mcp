@@ -1,6 +1,6 @@
 {
   "name": "@qelos/better-mcp",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Stdio MCP proxy: fans out to multiple upstream MCP servers and wraps every call in a middleware pipeline (logging, redaction, oversize-response offloading, and user hooks).",
   "type": "module",
   "main": "dist/index.js",
