@@ -6,6 +6,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { NextFunction, Request, Response } from "express";
 import { isLoopbackHost } from "../config/index.js";
 import { makeBearerAuth } from "../http/auth.middleware.js";
+import type { ResolvedSlimConfig } from "../lib/slim.js";
 import type { MiddlewarePipeline } from "../middleware/pipeline.js";
 import { buildProxyServer } from "../services/proxy.service.js";
 import type { UpstreamServer } from "../services/upstream.service.js";
@@ -20,6 +21,7 @@ interface ListenContext {
   upstreams: UpstreamServer[];
   pipeline: MiddlewarePipeline;
   namespace: boolean;
+  slim: ResolvedSlimConfig | null;
   transports: Record<string, StreamableHTTPServerTransport>;
 }
 
@@ -32,6 +34,7 @@ export async function startListenServer(opts: {
   upstreams: UpstreamServer[];
   pipeline: MiddlewarePipeline;
   namespace: boolean;
+  slim: ResolvedSlimConfig | null;
 }): Promise<ListenServer> {
   const host = opts.listen.host ?? "127.0.0.1";
   const path = opts.listen.path ?? "/mcp";
@@ -48,6 +51,7 @@ export async function startListenServer(opts: {
     upstreams: opts.upstreams,
     pipeline: opts.pipeline,
     namespace: opts.namespace,
+    slim: opts.slim,
     transports: {},
   };
 
@@ -117,6 +121,7 @@ async function handlePost(ctx: ListenContext, req: Request, res: Response): Prom
         upstreams: ctx.upstreams,
         pipeline: ctx.pipeline,
         namespace: ctx.namespace,
+        slim: ctx.slim,
       });
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
@@ -163,7 +168,7 @@ async function handleDelete(ctx: ListenContext, req: Request, res: Response): Pr
   }
 }
 
-function headerValue(value: string | string[] | undefined): string | undefined {
+export function headerValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 

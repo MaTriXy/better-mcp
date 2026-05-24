@@ -164,13 +164,58 @@ See **[docs/popular-mcps.md](docs/popular-mcps.md)**.
     // "[REDACTED]" in responses — useful for masking secrets in tool output.
     "redact": ["token", "password", "api_key", "authorization"],
 
+    // Slim down `tools/list` by stripping JSON-Schema noise (`$schema`,
+    // `title`, `examples`, `default`, empty `required`/`enum`, …) from
+    // every tool's inputSchema. ON by default; set `false` to disable.
+    // See "Slimming tools/list" below for the full set of knobs.
+    "slim": true,
+
+    // Compact responses: drop null-valued fields and minify JSON-in-text.
+    // Affects the WIRE response only — the file written by `offload` keeps
+    // full fidelity. ON by default; see "Compacting responses" below.
+    "compact": {
+      "dropNull": true,                       // default true
+      "dropEmptyString": false,                // default false
+      "dropEmptyArray": false,                 // default false
+      "dropEmptyObject": false,                // default false
+      "roundFloats": 0,                        // 0 = off; e.g. 4 → 0.1235
+      "exclude": ["server-name", "server__tool"]  // skip per-server or per-tool
+    },
+
+    // Clean terminal noise from text blocks: ANSI escape sequences and
+    // trailing whitespace per line. ON by default; see "Cleaning text" below.
+    "cleantext": {
+      "stripAnsi": true,                       // default true
+      "trimTrailingWhitespace": true,          // default true
+      "collapseBlankLines": false,             // default false (risky for markdown)
+      "exclude": []
+    },
+
+    // Response dedup cache. When the same `(server, tool)` returns identical
+    // bytes within TTL, replace the response with a short pointer. Useful for
+    // polling tools that re-emit unchanged data. OPT-IN — see "Dedup" below.
+    "dedup": {
+      "ttlSeconds": 300,                       // default 300 (5 min)
+      "maxEntries": 1000,                       // LRU cap
+      "minBytes": 200,                          // skip dedup below this
+      "includeResources": false,                // resources opt-in
+      "exclude": []
+    },
+
     // Offload oversize responses to a file and return a short pointer.
     // `true` enables defaults; pass an object to tune.
     "offload": {
       "thresholdBytes": 16384,         // default 16 KB
       "dir": "./exports",              // default <os.tmpdir()>/better-mcp
       "includeResources": false,        // default false (tools only)
-      "inferArrayShape": true           // default true
+      "inferArrayShape": true,          // default true
+      "previewRows": 3,                 // first-N preview line; 0 disables
+      "chapterMarkdown": true,           // split long markdown on H2 into chapters
+      "perTool": {                       // per-server / per-tool overrides
+        "fs__list_directory": { "thresholdBytes": 0 },   // always offload
+        "github":             { "thresholdBytes": 32768 }, // higher cutoff for the whole server
+        "weird-server":       false                       // never offload this server
+      }
     },
 
     // Per-tool JSONL trace of the ENTIRE pipeline flow (request → each
@@ -223,6 +268,157 @@ into the hook chain, so it can record what *each* middleware changed. Use `log`
 for a light one-line-per-call record; use `trace` when you need the full  
 per-tool flow.
 
+### Slimming `tools/list`
+
+`tools/list` is resent to the model every conversation turn, so trimming the
+catalog pays out per turn. By default the proxy strips a small set of
+JSON-Schema annotations that the model doesn't need at call time:
+
+- `$schema`, `$id`, `$comment`
+- `title`, `examples`, `default`
+- `required: []` and `enum: []` when empty (always, regardless of strip list)
+
+Set `middleware.slim: false` to disable, or pass an object to tune:
+
+```jsonc
+"middleware": {
+  "slim": {
+    // Override the default strip list. Walk is recursive (descends into
+    // `properties`, `items`, `anyOf`/`oneOf`/`allOf`, `patternProperties`, …).
+    "stripSchemaFields": ["$schema", "title", "examples", "default"],
+
+    // Drop a property's `description` when it's a short paraphrase of its name
+    // (e.g. property `userId` with description "the user ID"). Off by default.
+    "stripPropertyDescriptions": false,
+
+    // Truncate each tool's top-level description to this many chars
+    // (trailing `…`). 0 disables. Off by default — descriptions stay full.
+    "maxDescriptionLength": 0
+  }
+}
+```
+
+What's *not* stripped by default: `additionalProperties`, `format`, per-property
+`description`, `pattern`, `minimum`/`maximum`. Those carry real semantics that
+the model can use.
+
+### Compacting responses
+
+For every tool/resource/prompt response, the proxy walks `content[].text`
+blocks; when a text block holds parseable JSON (object or array), it drops
+empty-valued fields and re-stringifies minified. Substitution only happens
+when the result is strictly shorter, so this is idempotent on already-clean
+payloads. Free-form text (prose, code, offload pointers) is never touched —
+the parse-as-JSON precondition is the safety rail.
+
+Compact runs **after** the offloader in the response chain, so the file written
+to disk keeps the full original payload. Compact only changes what the client
+receives.
+
+```jsonc
+"middleware": {
+  "compact": {
+    "dropNull": true,         // default true — drop fields whose value is `null`
+    "dropEmptyString": false, // `""` vs missing is often meaningful
+    "dropEmptyArray": false,  // `[]` usually means "no results", not missing
+    "dropEmptyObject": false, // `{}` can be a deliberate empty container
+
+    // Round JSON numbers to N decimal places. `0` (default) disables.
+    // Integers and NaN/Infinity are untouched. Useful for floats from ML
+    // scores, timestamps, lat/lng — but lossy, so opt in deliberately.
+    //   0.123456789 → 0.1235 at precision 4 (≈45% byte saving per number)
+    "roundFloats": 0,
+
+    // Skip compaction for noisy servers/tools whose text payloads must
+    // round-trip byte-identical (e.g. an html_dump or code_snippet tool).
+    // Match by `"<server>"` (whole server) or `"<server>__<tool>"`.
+    "exclude": ["weird-server", "weird-server__raw_html"]
+  }
+}
+```
+
+Set `compact: false` to disable entirely. The minification step (whitespace
+stripping) is always on when compact is enabled — even with every `drop*`
+knob off, a pretty-printed JSON response will round-trip to its minified form.
+
+Note on array elements: compact **never drops elements from arrays** —
+array length is treated as load-bearing. The drop-* knobs apply only to
+object FIELDS.
+
+### Cleaning text
+
+For every tool/resource/prompt response, the proxy walks `content[].text`
+blocks (whether or not they hold JSON) and strips terminal-style noise:
+
+- **ANSI / CSI / OSC escape sequences** (`\x1b[31m…\x1b[0m`, terminal-title
+  setters, cursor moves, …). Useless to a model, pure tokens.
+- **Trailing whitespace per line** — `[ \t]+$` per line. No semantic value
+  unless you're writing a markdown trailing-double-space line break.
+
+```jsonc
+"middleware": {
+  "cleantext": {
+    "stripAnsi": true,              // default true
+    "trimTrailingWhitespace": true, // default true
+    "collapseBlankLines": false,    // default false — risky for markdown that
+                                    //   uses blank lines structurally
+    "exclude": ["weird-server", "weird-server__raw_terminal"]
+  }
+}
+```
+
+Cleantext runs **after compact** in the response chain (so minified JSON
+text — which is already trim — passes through unchanged), and **after
+offload** (so the on-disk file keeps the original ANSI codes for forensic
+value). Set `cleantext: false` to disable entirely.
+
+### Dedup
+
+Hash-based response cache for polling-style tools. When the proxy sees the
+same `(server, tool, response-bytes)` within `ttlSeconds`, it replaces the
+response with a short pointer instead of re-sending the full payload:
+
+```
+same response as 5s ago (sha:abc12345)
+```
+
+OFF by default — enable explicitly when you know you're polling. The pointer
+changes what the client receives; most LLMs handle it fine, but it's a
+behavioral change worth opting into.
+
+```jsonc
+"middleware": {
+  "dedup": {
+    "ttlSeconds": 300,        // default 300 (5 min)
+    "maxEntries": 1000,        // LRU cap; oldest evicted on insert
+    "minBytes": 200,           // skip dedup when response is smaller than this
+    "includeResources": false, // resources opt-in (prompts never deduped)
+    "exclude": ["weird-server", "weird-server__sometimes_caches_wrong"]
+  }
+}
+```
+
+How it works:
+
+- Runs **after** compact + cleantext, so the hash covers the bytes the client
+  actually receives (deterministic transforms don't invalidate cache hits).
+- Cache key is `<server>__<tool>__<sha256-of-result-prefix>` — same content
+  on different tools doesn't collide.
+- Hash is `sha256(JSON.stringify(result))`, displayed as the first 8 hex
+  chars. 32 bits of entropy is plenty for in-session dedup.
+- TTL is enforced lazily on each access (no background sweep). Entries past
+  TTL are dropped before the lookup; LRU eviction kicks in at `maxEntries`.
+- A HIT bumps the entry to most-recent in LRU order but does NOT reset its
+  `firstSeen` timestamp — the pointer's age reflects when the content was
+  first observed.
+- Per-process cache (per-pipeline). Shared across HTTP sessions naturally.
+  Cleared on restart.
+
+**Caveat:** tools whose responses embed timestamps, request IDs, or any
+non-deterministic field will never dedup — bytes differ → not the same
+response. That's correct behavior, but worth knowing before turning dedup on
+for a tool that "feels like" it should hit and never does.
+
 ### Offloading oversize responses
 
 When a tool response's JSON-serialized size exceeds `thresholdBytes`
@@ -237,14 +433,89 @@ When a tool response's JSON-serialized size exceeds `thresholdBytes`
    size: 142.3 KB (145708 bytes)
    length: 1024
    interface: Array<{ id: number; number: number; title: string; state: string; labels: Array<{ name: string; color: string }>; assignee: { login: string } | null }>
+   preview: {"cols":["id","number","title","state"],"rows":[[1,1,"First issue","open"],[2,2,"Second","closed"],[3,3,"Third","open"]]}
   ```
-   `length` and `interface` only appear when the saved data is an array. The
-   interface is inferred from a sample of up to 200 elements and depth-capped
-   at 4 to keep it lean.
+   `length`, `interface`, and `preview` only appear when the saved data is an
+   array. The interface is inferred from a sample of up to 200 elements and
+   depth-capped at 4 to keep it lean. The `preview` line shows the first
+   `previewRows` items (default 3): homogeneous object arrays render as
+   `{cols, rows}`; primitive or mixed arrays render as a JSON sample. Cell
+   values are capped at 80 chars; tables wider than 12 columns are skipped.
+   Set `previewRows: 0` to disable.
 
 Tool responses are always considered. Resource reads are skipped by default;
 flip `includeResources: true` (or pass `--offload-resources`) to include them.
 Prompts are never offloaded.
+
+#### Per-tool / per-server overrides
+
+Some tools always cross the threshold and never benefit from inline text
+(`fs__list_directory`, log dumps); others should never offload (small,
+format-sensitive tools). Use `perTool` to override the global behaviour for
+specific servers or tools without touching anyone else:
+
+```jsonc
+"offload": {
+  "thresholdBytes": 16384,
+  "perTool": {
+    "fs__list_directory":  { "thresholdBytes": 0 },         // always offload
+    "github__get_repo":    { "chapterMarkdown": false },     // disable chaptering here
+    "github":              { "thresholdBytes": 32768 },      // higher cutoff for whole server
+    "weird-server":        false,                            // never offload
+    "weird-server__keepme": { "thresholdBytes": 0 }          // …except this one tool
+  }
+}
+```
+
+Rules:
+
+- **Keys** use the `<server>__<tool>` / `<server>` convention (same as
+  `exclude` elsewhere).
+- **Object value** = `Partial<{ thresholdBytes, chapterMarkdown,
+  inferArrayShape, previewRows }>` merged on top of the global config for
+  matching calls. Unspecified knobs inherit from the global.
+- **`false` sentinel** = skip offload entirely for that server/tool. Use
+  this instead of `{ thresholdBytes: Infinity }`.
+- **Specificity:** `<server>__<tool>` wins over `<server>` when both match.
+  This lets you disable a whole server then re-enable one tool inside it.
+- **Storage knobs (`dir`, `includeResources`) stay global** — they're not
+  per-tool concerns.
+
+`{ thresholdBytes: 0 }` means "every response length is `> 0`, so every
+response offloads." Use it for tools whose output is always too large to be
+useful inline.
+
+#### Markdown chaptering
+
+When an oversize response is a single text block (didn't parse as JSON) and
+contains at least one H2 heading (`^## `), the offloader switches to markdown
+mode: it writes the full text to `<base>.md` AND one `<base>__NN_<slug>.md`
+sidecar per chapter, and returns a TOC pointer instead of the standard line:
+
+```
+markdown exported to: /tmp/better-mcp/jira__get_page__2026-05-17T….md
+size: 142.3 KB (145708 bytes)
+chapters:
+ - 00 - page_title: /tmp/…__00_page_title.md
+ - 01 - overview:   /tmp/…__01_overview.md
+ - 02 - api_reference: /tmp/…__02_api_reference.md
+```
+
+This costs slightly more pointer bytes than the single-file version, but the
+model can `read_file` just the chapter it needs on follow-up turns instead of
+the whole document.
+
+- The splitter is **code-block aware**: a `## ` line inside ```` ``` ```` or
+  `~~~` won't trigger a split.
+- Chapter 00 is the content before the first H2. Its slug comes from the
+  first `# H1` line if one exists, else `intro`. Empty intros are skipped.
+- Each chapter file includes its own heading line for context.
+- Slugs are lowercase, diacritics stripped, non-alphanumeric → `_`, capped
+  at 40 chars; falls back to `chapter` when nothing usable remains.
+- Set `chapterMarkdown: false` to keep today's behavior (full file saved as
+  a `.json` wrapper for everything that isn't a JSON array).
+- If a chapter write fails mid-flight, the full `.md` file is still on disk
+  and the pointer simply omits the failed entries — graceful degradation.
 
 ### Tracing the full pipeline (per-tool logs)
 

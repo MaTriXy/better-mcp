@@ -1,5 +1,6 @@
 import { loadConfig } from "../config/index.js";
 import { startListenServer } from "../controllers/listen.controller.js";
+import { resolveSlimConfig } from "../lib/slim.js";
 import { MiddlewarePipeline } from "../middleware/pipeline.js";
 import { buildProxyServer, startProxy } from "../services/proxy.service.js";
 import { connectAll } from "../services/upstream.service.js";
@@ -20,10 +21,12 @@ export async function bootstrap(opts: { entryDir: string }): Promise<void> {
   );
 
   const pipeline = await MiddlewarePipeline.build(config.middleware, baseDir);
+  const slim = resolveSlimConfig(config.middleware?.slim);
   const stdioServer = buildProxyServer({
     upstreams,
     pipeline,
     namespace: config.namespace ?? true,
+    slim,
   });
 
   const listenServer = config.listen
@@ -32,6 +35,7 @@ export async function bootstrap(opts: { entryDir: string }): Promise<void> {
         upstreams,
         pipeline,
         namespace: config.namespace ?? true,
+        slim,
       })
     : null;
 

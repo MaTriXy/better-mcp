@@ -11,8 +11,40 @@ import {
 import type { MiddlewarePipeline } from "../middleware/pipeline.js";
 import type { UpstreamServer } from "./upstream.service.js";
 import type { ProxyRequest } from "../types/index.js";
+import { slimTool, type ResolvedSlimConfig } from "../lib/slim.js";
 
 const NS_SEPARATOR = "__";
+
+/**
+ * Build the array returned by `tools/list`. Pulled out of the request handler
+ * so the slim + namespace logic can be unit-tested without an MCP server.
+ *
+ * Accepts the minimal shape we actually read off each upstream — that keeps
+ * tests free to pass plain literals instead of a full `UpstreamServer`.
+ */
+export interface ListedToolsSource {
+  name: string;
+  tools: { name: string; description?: string; inputSchema: unknown }[];
+}
+
+export function buildListedTools(
+  upstreams: ListedToolsSource[],
+  namespace: boolean,
+  slim: ResolvedSlimConfig | null,
+): { name: string; description?: string; inputSchema: { type: "object"; [k: string]: unknown } }[] {
+  const out: { name: string; description?: string; inputSchema: { type: "object"; [k: string]: unknown } }[] = [];
+  for (const s of upstreams) {
+    for (const t of s.tools) {
+      const base = {
+        name: namespace ? `${s.name}${NS_SEPARATOR}${t.name}` : t.name,
+        description: t.description,
+        inputSchema: t.inputSchema as { type: "object"; [k: string]: unknown },
+      };
+      out.push(slim ? (slimTool(base, slim) as typeof base) : base);
+    }
+  }
+  return out;
+}
 
 /**
  * Build maps from public (possibly-namespaced) name → owning upstream + original name.
@@ -60,8 +92,9 @@ export function buildProxyServer(opts: {
   upstreams: UpstreamServer[];
   pipeline: MiddlewarePipeline;
   namespace: boolean;
+  slim: ResolvedSlimConfig | null;
 }): McpServer {
-  const { upstreams, pipeline, namespace } = opts;
+  const { upstreams, pipeline, namespace, slim } = opts;
   const routes = buildRoutes(upstreams, namespace);
 
   const mcp = new McpServer(
@@ -79,17 +112,7 @@ export function buildProxyServer(opts: {
   // ---- tools ---------------------------------------------------------------
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const tools = [];
-    for (const s of upstreams) {
-      for (const t of s.tools) {
-        tools.push({
-          name: namespace ? `${s.name}${NS_SEPARATOR}${t.name}` : t.name,
-          description: t.description,
-          inputSchema: t.inputSchema as { type: "object"; [k: string]: unknown },
-        });
-      }
-    }
-    return { tools };
+    return { tools: buildListedTools(upstreams, namespace, slim) };
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {

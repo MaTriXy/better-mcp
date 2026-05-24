@@ -175,7 +175,7 @@ async function connectWithTransport(name: string, transport: Transport): Promise
   return server;
 }
 
-function buildRequestInit(headers?: Record<string, string>): RequestInit {
+export function buildRequestInit(headers?: Record<string, string>): RequestInit {
   if (!headers || Object.keys(headers).length === 0) return {};
   return { headers: { ...headers } };
 }

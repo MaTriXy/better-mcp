@@ -1,4 +1,7 @@
 import { resolveFromConfig } from "../config/index.js";
+import { makeCleanText, resolveCleanTextConfig } from "./cleantext.middleware.js";
+import { makeCompactor, resolveCompactConfig } from "./compact.middleware.js";
+import { makeDedup, resolveDedupConfig } from "./dedup.middleware.js";
 import { makeLogger } from "./logger.middleware.js";
 import { makeOffloader, resolveOffloadConfig } from "./offload.middleware.js";
 import { makeRedactor } from "./redactor.middleware.js";
@@ -25,12 +28,24 @@ const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(
  *   before:  outer  →  inner  →  (upstream call)
  *   after:           (upstream)  →  inner  →  outer
  *
- * Registration order is [logger, offloader, redactor, user], so for `after`:
+ * Registration order is [logger, dedup, cleantext, compact, offloader, redactor, user],
+ * so for `after`:
  *   - user runs first (sees raw upstream response, can transform it)
  *   - redactor runs next (cleans secrets)
  *   - offloader runs next (writes redacted data to disk, replaces response
  *     with a pointer message when oversize)
- *   - logger runs last (records the final, small response the client receives)
+ *   - compact runs next (shrinks the inline response by dropping null/empty
+ *     fields and minifying JSON-in-text; no-op on offloaded pointers)
+ *   - cleantext runs next (strips ANSI/trailing whitespace from remaining
+ *     non-JSON text; idempotent on minified JSON and on offload pointers)
+ *   - dedup runs next (hashes the final wire bytes; on cache hit replaces the
+ *     response with a short `same response as Xs ago` pointer)
+ *   - logger runs last (records the final response the client receives)
+ *
+ * Compact and cleantext are registered before offloader so the persisted file
+ * holds the original full-fidelity payload; only the wire response is shrunk.
+ * Dedup is registered after them so its hash covers the bytes the client
+ * actually receives.
  */
 export class MiddlewarePipeline {
   private hooks: NamedHook[] = [];
@@ -44,6 +59,12 @@ export class MiddlewarePipeline {
       const logCfg = typeof cfg.log === "object" ? cfg.log : {};
       p.hooks.push({ name: "log", impl: makeLogger(logCfg.level ?? "info", logCfg.file) });
     }
+    const dedupOpts = resolveDedupConfig(cfg?.dedup);
+    if (dedupOpts) p.hooks.push({ name: "dedup", impl: makeDedup(dedupOpts) });
+    const cleanOpts = resolveCleanTextConfig(cfg?.cleantext);
+    if (cleanOpts) p.hooks.push({ name: "cleantext", impl: makeCleanText(cleanOpts) });
+    const compactOpts = resolveCompactConfig(cfg?.compact);
+    if (compactOpts) p.hooks.push({ name: "compact", impl: makeCompactor(compactOpts) });
     if (cfg?.offload) {
       const opts = resolveOffloadConfig(cfg.offload, baseDir);
       if (opts) p.hooks.push({ name: "offload", impl: makeOffloader(opts) });
