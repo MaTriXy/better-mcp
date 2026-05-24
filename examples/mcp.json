@@ -1,9 +1,5 @@
 {
   "mcpServers": {
-    "fs": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-    },
     "github": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"],
